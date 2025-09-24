@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Вычисление мощности ИБП</title>
+  <link rel="stylesheet" href="/static/styles/bid_style4.css">
+</head>
+<body>
+  <header>
+    <a href="/"><img src="/static/img/Image2.png" alt="home"></a>
+    <h1>Вычисление мощности ИБП</h1>
+  </header>
+
+  <div class="main-container">
+
+    <!-- форма только для сохранения заявки -->
+    <form method="POST">
+      <input type="hidden" name="bid_id" value="{{ .bid }}">
+
+      <div class="page-header">
+        <h2 class="page-title">Составление заявки</h2>
+
+        <div class="input-group">
+          <span class="input-label">Выберите необходимое время работы</span>
+          <input type="number" name="hours" class="input-field" min="1" required>
+          <span class="unit">ч</span>
+        </div>
+
+        <button type="button" class="save-btn">Сохранить</button>
+      </div>
+
+      {{ if .error }}
+      <div class="error" style="color:red; margin-top:12px;">{{ .error }}</div>
+      {{ end }}
+
+      {{ if .result }}
+      <div class="result" style="margin-top:12px; font-weight:bold;">
+        Рассчитанная мощность ИБП: {{ .result }} Вт
+      </div>
+      {{ end }}
+    </form>
+
+    <!-- список компонентов -->
+    {{ range $i, $c := .components }}
+    <div class="device-card">
+      <!-- отдельная форма для удаления компонента -->
+      <form method="POST" action="/bid/{{ $.bid }}/delete-component" style="display:inline;">
+        <input type="hidden" name="component_id" value="{{ $c.ID }}">
+        <button class="delete-btn" type="submit">✕</button>
+      </form>
+
+      <div class="device-image">
+        <h3 class="device-name">{{ $c.Title }}</h3>
+        <img src="{{ $c.Image }}" alt="component">
+      </div>
+
+      <div class="device-info">
+        <div class="input-group">
+          <span class="input-label">Входящий ток</span>
+          <input type="number" step="any" name="incoming_current_{{ $c.ID }}" class="input-field" required>
+          <span class="unit">Вт</span>
+        </div>
+        <div class="note">
+          <p>Коэффициент мощности: {{ $c.Coeff }}</p>
+          <p>Мощность: {{ $c.Power }} Вт</p>
+        </div>
+      </div>
+    </div>
+    {{ end }}
+
+  </div>
+</body>
+</html>

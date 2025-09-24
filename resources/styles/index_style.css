@@ -198,4 +198,33 @@ a trash-button{
     font-size: 50px;
 }
 
+.cart-icon {
+    position: fixed;
+    bottom: 10px;   /* отступ от нижнего края */
+    left: 10px;     /* отступ от левого края */
+    display: inline-block;
+    z-index: 1000;  /* поверх всего */
+}
+
+.cart-icon img {
+    width: 95px;   /* уменьшаем размер корзины */
+    height: 95px;
+}
+
+.cart-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: red;
+    color: white;
+    font-size: 33px;
+    font-weight: bold;
+    border-radius: 50%;
+    padding: 2px 5px;
+    min-width: 16px;
+    text-align: center;
+}
+
+
+
 

@@ -1,7 +1,7 @@
 <html lang="ru">
 <head>
     <title>Lab1</title>
-    <link rel="stylesheet" href="/static/styles/index_style2.css">
+    <link rel="stylesheet" href="/static/styles/index_style.css">
 </head>
 <body>
     <header>
@@ -11,7 +11,6 @@
     
     <h1>Устройства</h1>
 
-    
     <form class="search-form" action="/" method="GET">
         <input type="text" name="query" placeholder="Поиск компонентов" value="{{ .query }}">
         <button type="submit">Найти</button>
@@ -22,18 +21,21 @@
         <div class="card">
             <img src="{{ .Image }}" alt="Изображние" class="card-image">
             <div class="card-title">{{ .Title}}</div>
-            <div class="card-power">Мощность ~ {{ .Power}} Вт</div>
-            <div class="card-coeff">Коэффициент мощности ~ {{ .Coeff}} </div>
             <div class="card-actions">
-                <a href="/order/{{ .ID }}" class="btn-details">Подробнее</a>
-                <button class="btn-add">В заявку</button>
+                <a href="/component/{{ .ID }}" class="btn-details">Подробнее</a>
+                <form method="POST" action="/add-to-bid" style="display:inline;">
+                    <input type="hidden" name="component_id" value="{{ .ID }}">
+                    <button type="submit" class="btn-add">В заявку</button>
+                </form>
             </div>
         </div>
         {{ end }}
     </div>
     
-    <a href="/trash" class="trash-button">
-        <div class="trash-count">{{len .trash.Components}}</div>
+    <a href="/bid/7" class="cart-icon">
+    <img src="http://127.0.0.1:9000/test/image4.png" alt="Корзина">
+    <span class="cart-count">{{ .count }}</span>
     </a>
+
 </body>
 </html>
