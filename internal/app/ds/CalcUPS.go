@@ -1,6 +1,6 @@
 package ds
 
-type BidComponent struct {
+type CalcUPS struct {
 	ID uint `gorm:"primaryKey;autoIncrement"`
 
 	BidID       uint `gorm:"not null"`
@@ -12,7 +12,7 @@ type BidComponent struct {
 	IncomingCurrent int `gorm:"type:int"`
 	CalculatedPower int `gorm:"type:int"`
 
-	Bid       Bid       `gorm:"foreignKey:BidID"`
+	Bid       BidUPS    `gorm:"foreignKey:BidID"`
 	Component Component `gorm:"foreignKey:ComponentID"`
 }
 

@@ -20,9 +20,8 @@ func NewHandler(r *repository.Repository) *Handler {
 func (h *Handler) RegisterHandler(router *gin.Engine) {
 	router.GET("/", h.GetComponents)
 	router.GET("/component/:id", h.GetComponent)
-	router.GET("/bid/:id", h.GetBid)
-	//router.POST("/save-bid", h.SaveBid)
-	router.POST("/bid/:id/delete-component", h.DeleteComponent)
+	router.GET("/calcups/:id", h.GetBid)
+	router.POST("/calcups/:id/delete-component", h.DeleteComponent)
 	router.POST("/add-to-bid", h.AddComponentToBid)
 
 }

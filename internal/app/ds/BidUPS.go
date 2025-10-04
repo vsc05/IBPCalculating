@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-type Bid struct {
+type BidUPS struct {
 	ID          uint   `gorm:"primaryKey"`
 	Status      string `gorm:"type:varchar(15);not null"`
 	DateUpdate  time.Time
@@ -13,7 +13,7 @@ type Bid struct {
 	CreatorID   uint         `gorm:"not null"`
 	ModeratorID uint
 
-	Creator    User           `gorm:"foreignKey:CreatorID"`
-	Moderator  User           `gorm:"foreignKey:ModeratorID"`
-	Components []BidComponent `gorm:"foreignKey:BidID"`
+	Creator    User      `gorm:"foreignKey:CreatorID"`
+	Moderator  User      `gorm:"foreignKey:ModeratorID"`
+	Components []CalcUPS `gorm:"foreignKey:BidID"`
 }

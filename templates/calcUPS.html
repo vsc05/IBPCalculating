@@ -45,7 +45,7 @@
     {{ range $i, $c := .components }}
     <div class="device-card">
       <!-- отдельная форма для удаления компонента -->
-      <form method="POST" action="/bid/{{ $.bid }}/delete-component" style="display:inline;">
+      <form method="POST" action="/calcups/{{ $.bid }}/delete-component" style="display:inline;">
         <input type="hidden" name="component_id" value="{{ $c.ID }}">
         <button class="delete-btn" type="submit">✕</button>
       </form>
