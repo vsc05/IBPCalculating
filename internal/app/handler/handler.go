@@ -46,6 +46,7 @@ func (h *Handler) GetOrders(ctx *gin.Context) {
 	var err error
 	var trash []repository.Trash
 	var activeTrash repository.Trash
+	var trashCount int
 
 	trash, err = h.Repository.GetTrash()
 	if err != nil {
@@ -72,10 +73,13 @@ func (h *Handler) GetOrders(ctx *gin.Context) {
 		}
 	}
 
+	trashCount = len(trash)
+
 	ctx.HTML(http.StatusOK, "index.html", gin.H{
-		"trash":  activeTrash,
-		"orders": orders,
-		"query":  searchQuery,
+		"trash":      activeTrash,
+		"orders":     orders,
+		"query":      searchQuery,
+		"trashCount": trashCount,
 	})
 }
 
@@ -94,4 +98,8 @@ func (h *Handler) GetOrder(ctx *gin.Context) {
 	ctx.HTML(http.StatusOK, "order.html", gin.H{
 		"order": order,
 	})
+}
+
+func (h *Handler) GetCartCount(ctx *gin.Context) {
+
 }

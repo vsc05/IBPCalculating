@@ -26,6 +26,12 @@ type Trash struct {
 	Status     string
 }
 
+type CalcBid struct {
+	ID          int
+	ComponentID int
+	BidUPS      int
+}
+
 func (r *Repository) GetTrash() ([]Trash, error) {
 	order1, err := r.GetOrder(1)
 	if err != nil {
