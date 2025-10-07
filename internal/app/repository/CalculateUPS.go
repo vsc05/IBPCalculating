@@ -145,3 +145,161 @@ func (r *Repository) GetCalcPower(bidID int) float64 {
 
 	return sumPower
 }
+
+func (r *Repository) CreateUser(user *ds.User) error {
+	return r.db.Create(user).Error
+}
+
+func (r *Repository) GetUserByID(id int) (*ds.User, error) {
+	var user ds.User
+	err := r.db.Where("id = ?", id).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *Repository) GetUserByUsername(username string) (*ds.User, error) {
+	var user ds.User
+	err := r.db.Where("login = ?", username).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *Repository) UpdateUser(id int, updates map[string]interface{}) error {
+	result := r.db.Model(&ds.User{}).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("пользователь не найден")
+	}
+	return nil
+}
+
+func (r *Repository) CreateComponent(resource *ds.Component) error {
+	resource.IsDelete = false
+	return r.db.Create(resource).Error
+}
+
+func (r *Repository) UpdateComponent(id int, updates map[string]interface{}) error {
+	result := r.db.Model(&ds.Component{}).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("ресурс не найден")
+	}
+	return nil
+}
+
+func (r *Repository) DeleteComponentPostman(id int) error {
+	result := r.db.Model(&ds.Component{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"is_delete": true,
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("ресурс не найден")
+	}
+	return nil
+}
+
+func (r *Repository) SetComponentImage(id int, imageURL string) error {
+	return r.db.Model(&ds.Component{}).Where("id = ?", id).Update("image", imageURL).Error
+}
+
+func (r *Repository) GetUserCart(userID int) ([]ds.BidUPS, error) {
+	var applications []ds.BidUPS
+	err := r.db.Where("creator_id = ? AND status = 'черновик'", userID).
+		Preload("Components.Component").
+		Find(&applications).Error
+	return applications, err
+}
+
+func (r *Repository) GetAllBidUPS() ([]ds.BidUPS, error) {
+	var applications []ds.BidUPS
+	err := r.db.Preload("Components.Component").
+		Where("status NOT IN ?", []string{"черновик", "удалён"}).
+		Find(&applications).Error
+	return applications, err
+}
+
+func (r *Repository) DeclineBidUPS(applicationID int, moderatorID int) error {
+	return r.db.Model(&ds.BidUPS{}).Where("id = ?", applicationID).Updates(map[string]interface{}{
+		"status":       "отклонена",
+		"moderator_id": moderatorID,
+	}).Error
+}
+
+func (r *Repository) SetBidUPS(id, weight, productivity int) error {
+	var application ds.BidUPS
+
+	result := r.db.First(&application, id)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("заявка не найдена")
+		}
+		return result.Error
+	}
+
+	result = r.db.Model(&application).Updates(map[string]interface{}{
+		"creator_id":   weight,
+		"moderator_id": productivity,
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+
+	return nil
+}
+
+func (r *Repository) FormBidUPS(id int) error {
+	var application ds.BidUPS
+
+	result := r.db.First(&application, "id = ? AND status = ?", id, "черновик")
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("заявка не найдена")
+		}
+		return result.Error
+	}
+
+	result = r.db.Model(&application).Update("status", "сформирован")
+	if result.Error != nil {
+		return result.Error
+	}
+
+	return nil
+}
+
+func (r *Repository) DeleteCalcUPS(applicationID, resourceID int) error {
+	result := r.db.Where("bid_id = ? AND component_id = ?", applicationID, resourceID).
+		Delete(&ds.CalcUPS{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("ресурс не найден в заявке")
+	}
+	return nil
+}
+
+func (r *Repository) SetCalcUPS(applicationID, resourceID int, component_id int, coefficient int, power int) error {
+
+	result := r.db.Model(&ds.CalcUPS{}).
+		Where("id = ? AND bid_id = ? AND component_id = ?", resourceID, applicationID, component_id).
+		Update("battery_life", coefficient).
+		Update("incoming_current", power)
+
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("ресурс не найден в заявке")
+	}
+	return nil
+}

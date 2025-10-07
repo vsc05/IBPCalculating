@@ -3,14 +3,12 @@ package ds
 type CalcUPS struct {
 	ID uint `gorm:"primaryKey;autoIncrement"`
 
-	BidID       uint `gorm:"not null"`
-	ComponentID uint `gorm:"not null"`
+	BidID       uint `gorm:"not null"; json:"bidId"`
+	ComponentID uint `gorm:"not null"; json:"componentId"`
 
-	IsDelete bool `gorm:"default:false"`
-
-	BatteryLife     int `gorm:"type:int;not null"`
-	IncomingCurrent int `gorm:"type:int"`
-	CalculatedPower int `gorm:"type:int"`
+	BatteryLife     int `gorm:"type:int;not null;default:0"; json:"battery_life"`
+	IncomingCurrent int `gorm:"type:int;not null;default:0"; json:"incoming_power"`
+	CalculatedPower int `gorm:"type:int;"`
 
 	Bid       BidUPS    `gorm:"foreignKey:BidID"`
 	Component Component `gorm:"foreignKey:ComponentID"`
