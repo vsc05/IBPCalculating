@@ -2,11 +2,19 @@ package handler
 
 import (
 	"Lab1/internal/app/ds"
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -52,8 +60,7 @@ func (h *Handler) GetComponent(ctx *gin.Context) {
 }
 
 func (h *Handler) AddComponentToBid(ctx *gin.Context) {
-	bidID := 7 // пока захардкодим черновик
-	compIDStr := ctx.PostForm("component_id")
+	compIDStr := ctx.Param("id")
 
 	compID, err := strconv.Atoi(compIDStr)
 	if err != nil {
@@ -61,11 +68,21 @@ func (h *Handler) AddComponentToBid(ctx *gin.Context) {
 		return
 	}
 
-	err = h.Repository.AddComponentToBid(bidID, compID)
+	draftBid, err := h.Repository.GetDraftBid()
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "не найдена заявка-черновик: " + err.Error()})
+		return
+	}
+
+	err = h.Repository.AddComponentToBid(int(draftBid.ID), compID)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.successResponse(ctx, gin.H{
+		"message": "Компонент успешно добавлен в текущую заявку",
+	})
 
 	ctx.Redirect(http.StatusFound, "/")
 }
@@ -358,48 +375,96 @@ func (h *Handler) DeleteComponentPostman(ctx *gin.Context) {
 }
 
 func (h *Handler) SetComponentImage(ctx *gin.Context) {
+	// Загружаем env, если ещё не
+	_ = godotenv.Load()
+
 	idStr := ctx.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		h.errorResponse(ctx, http.StatusBadRequest, "Неверный ID Компонента")
+		h.errorResponse(ctx, http.StatusBadRequest, "Неверный ID компонента")
 		return
 	}
 
-	var request struct {
-		Image string `json:"image" binding:"required"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		h.errorResponse(ctx, http.StatusBadRequest, "Неверный формат данных")
+	file, err := ctx.FormFile("image")
+	if err != nil {
+		h.errorResponse(ctx, http.StatusBadRequest, "Не удалось получить файл")
 		return
 	}
 
-	if err := h.Repository.SetComponentImage(id, request.Image); err != nil {
-		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка установки изображения: "+err.Error())
+	src, err := file.Open()
+	if err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка открытия файла")
+		return
+	}
+	defer src.Close()
+
+	// Подключаемся к MinIO
+	endpoint := os.Getenv("MINIO_ENDPOINT")
+	accessKey := os.Getenv("MINIO_ACCESS_KEY")
+	secretKey := os.Getenv("MINIO_SECRET_KEY")
+	bucketName := os.Getenv("MINIO_BUCKET")
+	useSSL := os.Getenv("MINIO_USE_SSL") == "true"
+
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: useSSL,
+	})
+	if err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка подключения к MinIO: "+err.Error())
+		return
+	}
+
+	// Проверяем / создаём бакет
+	ctxMinio := context.Background()
+	exists, err := minioClient.BucketExists(ctxMinio, bucketName)
+	if err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка проверки бакета: "+err.Error())
+		return
+	}
+	if !exists {
+		err = minioClient.MakeBucket(ctxMinio, bucketName, minio.MakeBucketOptions{})
+		if err != nil {
+			h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка создания бакета: "+err.Error())
+			return
+		}
+	}
+
+	// Имя файла
+	objectName := fmt.Sprintf("component_%d_%d%s", id, time.Now().Unix(), filepath.Ext(file.Filename))
+
+	// Загружаем файл
+	uploadInfo, err := minioClient.PutObject(ctxMinio, bucketName, objectName, src, file.Size, minio.PutObjectOptions{
+		ContentType: file.Header.Get("Content-Type"),
+	})
+	if err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка загрузки в MinIO: "+err.Error())
+		return
+	}
+
+	// Формируем публичную ссылку
+	imageURL := fmt.Sprintf("http://%s/%s/%s", endpoint, bucketName, uploadInfo.Key)
+
+	// Сохраняем в БД
+	if err := h.Repository.SetComponentImage(id, imageURL); err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка записи в БД: "+err.Error())
 		return
 	}
 
 	h.successResponse(ctx, gin.H{
-		"message": "Изображение успешно установлено",
+		"message":  "Изображение успешно загружено в MinIO",
+		"imageURL": imageURL,
 	})
 }
 
 func (h *Handler) GetUserCart(ctx *gin.Context) {
-	userIDStr := ctx.Param("id")
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		h.errorResponse(ctx, http.StatusBadRequest, "Неверный ID пользователя")
-		return
-	}
-
-	applications, err := h.Repository.GetUserCart(userID)
+	applications, err := h.Repository.GetUserCart()
 	if err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка получения корзины: "+err.Error())
 		return
 	}
 
 	h.successResponse(ctx, gin.H{
-		"applications": applications,
+		"applications_Count": applications,
 	})
 }
 
@@ -411,8 +476,20 @@ func (h *Handler) GetBidUPS(ctx *gin.Context) {
 	}
 
 	h.successResponse(ctx, gin.H{
-		"applications": applications,
-		"total":        len(applications),
+		"BidUPS": applications,
+		"total":  len(applications),
+	})
+}
+
+func (h *Handler) GetComponents2(ctx *gin.Context) {
+	applications, err := h.Repository.GetAllComponents()
+	if err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка получения компонентов: "+err.Error())
+		return
+	}
+
+	h.successResponse(ctx, gin.H{
+		"Components": applications,
 	})
 }
 
@@ -431,11 +508,39 @@ func (h *Handler) FormBidUPS(ctx *gin.Context) {
 	}
 
 	h.successResponse(ctx, gin.H{
-		"message": "Заявка успешно отправлена",
+		"message": "Заявка успешно сформирована",
 	})
 }
 
 func (h *Handler) DeclineBidUPS(ctx *gin.Context) {
+	applicationIDStr := ctx.Param("id")
+	applicationID, err := strconv.Atoi(applicationIDStr)
+	if err != nil {
+		h.errorResponse(ctx, http.StatusBadRequest, "Неверный ID заявки")
+		return
+	}
+
+	var request struct {
+		ModeratorID int    `json:"moderator_id" binding:"required"`
+		Status      string `json:"status" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		h.errorResponse(ctx, http.StatusBadRequest, "Неверный формат данных")
+		return
+	}
+
+	if err := h.Repository.DeclineBidUPS(applicationID, request.ModeratorID, request.Status); err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка отклонения заявки: "+err.Error())
+		return
+	}
+
+	h.successResponse(ctx, gin.H{
+		"message": "Заявка успешно отклонена",
+	})
+}
+
+func (h *Handler) DeleteBidUPS(ctx *gin.Context) {
 	applicationIDStr := ctx.Param("id")
 	applicationID, err := strconv.Atoi(applicationIDStr)
 	if err != nil {
@@ -452,13 +557,13 @@ func (h *Handler) DeclineBidUPS(ctx *gin.Context) {
 		return
 	}
 
-	if err := h.Repository.DeclineBidUPS(applicationID, request.ModeratorID); err != nil {
+	if err := h.Repository.DeleteBidUPS(applicationID, request.ModeratorID); err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка отклонения заявки: "+err.Error())
 		return
 	}
 
 	h.successResponse(ctx, gin.H{
-		"message": "Заявка успешно отклонена",
+		"message": "Заявка успешно удалена",
 	})
 }
 
@@ -544,6 +649,6 @@ func (h *Handler) SetCalcUPS(ctx *gin.Context) {
 	}
 
 	h.successResponse(ctx, gin.H{
-		"message": "Коэффициент успешно установлен",
+		"message": "Успешно установлено",
 	})
 }

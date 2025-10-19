@@ -35,3 +35,11 @@ func (a *Application) RunApp() {
 	}
 	logrus.Info("Server down")
 }
+
+// Ping godoc
+// @Summary      Show hello text
+// @Description  very very friendly response
+// @Tags         Tests
+// @Produce      json
+// @Success      200  {object}  pingResp
+// @Router       /ping/{name} [get]
