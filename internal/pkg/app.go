@@ -1,8 +1,9 @@
 package pkg
 
 import (
-	"Lab1/internal/app/config"
-	"Lab1/internal/app/handler"
+	"DIA3Course/internal/app/config"
+	"DIA3Course/internal/app/handler"
+	"DIA3Course/internal/app/redis"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -13,13 +14,15 @@ type Application struct {
 	Config  *config.Config
 	Router  *gin.Engine
 	Handler *handler.Handler
+	Redis   *redis.Client
 }
 
-func NewApp(c *config.Config, r *gin.Engine, h *handler.Handler) *Application {
+func NewApp(c *config.Config, r *gin.Engine, h *handler.Handler, redisClient *redis.Client) *Application {
 	return &Application{
 		Config:  c,
 		Router:  r,
 		Handler: h,
+		Redis:   redisClient,
 	}
 }
 

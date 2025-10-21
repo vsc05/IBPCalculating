@@ -1,9 +1,10 @@
 package repository
 
 import (
-	"Lab1/internal/app/ds"
+	"DIA3Course/internal/app/ds"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -47,14 +48,12 @@ func (r *Repository) AddComponentToBid(bidID, componentID int) error {
 		First(&existing).Error
 
 	if err == nil {
-		// запись есть → восстанавливаем
 		return r.db.Model(&ds.Component{}).
 			Where("id = ?", componentID).
 			Update("is_delete", false).Error
 	}
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		// записи реально нет → создаём новую
 		newComp := ds.CalcUPS{
 			BidID:       uint(bidID),
 			ComponentID: uint(componentID),
@@ -212,12 +211,39 @@ func (r *Repository) SetComponentImage(id int, imageURL string) error {
 	return r.db.Model(&ds.Component{}).Where("id = ?", id).Update("image", imageURL).Error
 }
 
-func (r *Repository) GetUserCart(userID int) ([]ds.BidUPS, error) {
-	var applications []ds.BidUPS
-	err := r.db.Where("creator_id = ? AND status = 'черновик'", userID).
-		Preload("Components.Component").
-		Find(&applications).Error
-	return applications, err
+func (r *Repository) GetUserCart(userLogin string) (int64, error) {
+	// Находим ID пользователя по логину
+	var user ds.User
+	err := r.db.Where("login = ?", userLogin).First(&user).Error
+	if err != nil {
+		return 0, fmt.Errorf("user not found: %w", err)
+	}
+
+	var count int64
+	err = r.db.Model(&ds.CalcUPS{}).
+		Joins("JOIN bid_ups ON bid_ups.id = calc_ups.bid_id").
+		Where("bid_ups.creator_id = ? AND bid_ups.status = ?", user.ID, "черновик").
+		Count(&count).Error
+
+	return count, err
+}
+
+// Альтернативный вариант - возвращать не только количество, но и сами заявки
+func (r *Repository) GetUserCartDetails(userLogin string) ([]ds.BidUPS, error) {
+	// Находим ID пользователя по логину
+	var user ds.User
+	err := r.db.Where("login = ?", userLogin).First(&user).Error
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	var bids []ds.BidUPS
+	err = r.db.Where("creator_id = ? AND status = ?", user.ID, "черновик").Find(&bids).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return bids, nil
 }
 
 func (r *Repository) GetAllBidUPS() ([]ds.BidUPS, error) {
@@ -228,9 +254,75 @@ func (r *Repository) GetAllBidUPS() ([]ds.BidUPS, error) {
 	return applications, err
 }
 
-func (r *Repository) DeclineBidUPS(applicationID int, moderatorID int) error {
+func (r *Repository) GetAllComponents() ([]ds.Component, error) {
+	var components []ds.Component
+	err := r.db.Find(&components).Error
+	if err != nil {
+		return nil, err
+	}
+	return components, nil
+}
+
+func (r *Repository) DeclineBidUPS(applicationID int, moderatorID int, status string) error {
+	tx := r.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var currentBid ds.BidUPS
+	if err := tx.First(&currentBid, applicationID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	finalStatus := status
+	if status == "завершена" && currentBid.Status != "сформирован" {
+		tx.Rollback()
+		return fmt.Errorf("для завершения заявка должна быть в статусе 'сформирован', текущий статус: '%s'", currentBid.Status)
+	}
+
+	err := tx.Model(&ds.BidUPS{}).Where("id = ?", applicationID).Updates(map[string]interface{}{
+		"status":       finalStatus,
+		"date_finish":  time.Now(),
+		"moderator_id": moderatorID,
+	}).Error
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	if currentBid.Status == "сформирован" && status == "завершена" {
+		var calcUPSRecords []ds.CalcUPS
+		if err := tx.Where("bid_id = ?", applicationID).Find(&calcUPSRecords).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
+
+		for _, calcRecord := range calcUPSRecords {
+			var component ds.Component
+			if err := tx.First(&component, calcRecord.ComponentID).Error; err != nil {
+				tx.Rollback()
+				return err
+			}
+
+			calculatedPower := calcRecord.BatteryLife * (calcRecord.IncomingCurrent + component.Power) * int(component.Coeff)
+
+			if err := tx.Model(&ds.CalcUPS{}).Where("id = ?", calcRecord.ID).Update("calculated_power", calculatedPower).Error; err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+	}
+
+	return tx.Commit().Error
+}
+
+func (r *Repository) DeleteBidUPS(applicationID int, moderatorID int) error {
 	return r.db.Model(&ds.BidUPS{}).Where("id = ?", applicationID).Updates(map[string]interface{}{
-		"status":       "отклонена",
+		"status":       "удален",
+		"date_finish":  time.Now(),
 		"moderator_id": moderatorID,
 	}).Error
 }
@@ -302,4 +394,26 @@ func (r *Repository) SetCalcUPS(applicationID, resourceID int, component_id int,
 		return fmt.Errorf("ресурс не найден в заявке")
 	}
 	return nil
+}
+
+func (r *Repository) GetDraftBid() (*ds.BidUPS, error) {
+	var bid ds.BidUPS
+	err := r.db.Where("status = ?", "черновик").First(&bid).Error
+	if err != nil {
+		return nil, err
+	}
+	return &bid, nil
+}
+
+func (r *Repository) GetActiveUser() (int, error) {
+	var bid ds.BidUPS
+	err := r.db.Where("status = ?", "черновик").First(&bid).Error
+	if err != nil {
+		return 0, err
+	}
+	return int(bid.CreatorID), nil
+}
+
+func (r *Repository) Register(user *ds.User) error {
+	return r.db.Create(user).Error
 }

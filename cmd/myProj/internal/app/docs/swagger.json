@@ -1,0 +1,19 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Bmstu Open IT Platform",
+        "title": "BITOP API",
+        "contact": {
+            "name": "API Support",
+            "url": "https://vk.com/bmstu_schedule",
+            "email": "bitop@spatecon.ru"
+        },
+        "license": {
+            "name": "AS IS (NO WARRANTY)"
+        },
+        "version": "1.0"
+    },
+    "host": "127.0.0.1:8080",
+    "basePath": "/",
+    "paths": {}
+}

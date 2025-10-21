@@ -1,8 +1,8 @@
 package main
 
 import (
-	"Lab1/internal/app/ds"
-	"Lab1/internal/app/dsn"
+	"DIA3Course/internal/app/ds"
+	"DIA3Course/internal/app/dsn"
 
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
