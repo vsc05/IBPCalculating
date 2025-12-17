@@ -13,7 +13,11 @@ type BidUPS struct {
 	CreatorID   uint         `gorm:"not null" json:"creator_id"`
 	ModeratorID uint         `gorm:"default:null" json:"moderator_id"`
 
+	IncomingCurrent int `gorm:"type:int;default:0"; json:"incoming_power"`
+
 	Creator    User      `gorm:"foreignKey:CreatorID" json:"creator"`
 	Moderator  User      `gorm:"foreignKey:ModeratorID" json:"moderator"`
 	Components []CalcUPS `gorm:"foreignKey:BidID" json:"components"`
+
+	CalculatedPowerCount int `gorm:"-" json:"calculated_power_count"`
 }

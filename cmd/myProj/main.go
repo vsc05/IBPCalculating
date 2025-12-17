@@ -1,8 +1,8 @@
 package main
 
 import (
+	"DIA3Course/docs"
 	"DIA3Course/internal/app/config"
-	"DIA3Course/internal/app/docs"
 	"DIA3Course/internal/app/dsn"
 	"DIA3Course/internal/app/handler"
 	"DIA3Course/internal/app/redis"

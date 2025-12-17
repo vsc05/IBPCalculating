@@ -14,8 +14,6 @@ type RegisterRequest struct {
 }
 
 type UpdateUserRequest struct {
-	Login       string `json:"login,omitempty"`
-	IsModerator bool   `json:"isModerator,omitempty"`
+	Login    string `json:"login,omitempty"`
+	Password string `json:"password,omitempty"` // Теперь это поле для нового пароля
 }
-
-

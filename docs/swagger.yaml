@@ -1,0 +1,898 @@
+basePath: /
+definitions:
+  ds.Component:
+    properties:
+      coeff:
+        type: number
+      id:
+        type: integer
+      image:
+        type: string
+      is_delete:
+        type: boolean
+      power:
+        type: integer
+      title:
+        type: string
+    type: object
+  ds.LoginRequest:
+    properties:
+      login:
+        type: string
+      password:
+        type: string
+    type: object
+  ds.LoginResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      token_type:
+        type: string
+      user: {}
+    type: object
+  ds.RegisterRequest:
+    properties:
+      isModerator:
+        type: boolean
+      login:
+        type: string
+      password:
+        type: string
+    required:
+    - login
+    - password
+    type: object
+  ds.UpdateUserRequest:
+    properties:
+      isModerator:
+        type: boolean
+      login:
+        type: string
+    type: object
+host: 127.0.0.1:8080
+info:
+  contact:
+    email: bitop@spatecon.ru
+    name: API Support
+    url: https://vk.com/bmstu_schedule
+  description: Bmstu Open IT Platform
+  license:
+    name: AS IS (NO WARRANTY)
+  title: BITOP API
+  version: "1.0"
+paths:
+  /api/bidUPS:
+    get:
+      consumes:
+      - application/json
+      description: Возвращает данные корзины (ID бида и количество товаров) для текущего
+        авторизованного пользователя
+      parameters:
+      - default: Bearer
+        description: Bearer токен авторизации
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный ответ
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Пользователь не авторизован
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Получить корзину пользователя
+      tags:
+      - bidUPS
+  /api/bidUPS/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Полностью удаляет заявку на расчет ИБП
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ID модератора
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заявка успешно удалена
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка удаления заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Удалить заявку ИБП
+      tags:
+      - bidUPS
+    get:
+      consumes:
+      - application/json
+      description: Возвращает детальную информацию о заявке UPS по указанному ID,
+        включая компоненты
+      parameters:
+      - description: ID заявки UPS
+        format: uint32
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный ответ с данными заявки
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Неверный формат ID
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Заявка не найдена
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Получить заявку UPS по ID
+      tags:
+      - bidUPS
+  /api/bidUPS/{id}/decline:
+    put:
+      consumes:
+      - application/json
+      description: Отклоняет заявку на расчет ИБП с указанием модератора и статуса
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Данные для отклонения заявки
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заявка успешно отклонена
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка отклонения заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Отклонить заявку ИБП
+      tags:
+      - bidUPS
+  /api/bidUPS/{id}/form:
+    put:
+      description: Завершает формирование заявки на расчет ИБП
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заявка успешно сформирована
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка формирования заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Сформировать заявку ИБП
+      tags:
+      - bidUPS
+  /api/bidUPS/{id}/set:
+    put:
+      consumes:
+      - application/json
+      description: Обновляет вес и производительность для заявки ИБП
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Данные для обновления
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Изменения успешно сохранены
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка обновления заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Обновить данные заявки ИБП
+      tags:
+      - bidUPS
+  /api/bidUPSAll:
+    get:
+      description: Возвращает все заявки UPS из системы с общим количеством
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный ответ
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка сервера
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Получение списка заявок UPS
+      tags:
+      - bidUPS
+  /api/calcUPS:
+    delete:
+      consumes:
+      - application/json
+      description: Удаляет компонент из расчета ИБП
+      parameters:
+      - description: ID ресурса
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ID заявки
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Компонент успешно удален из заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID ресурса или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка удаления компонента
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Удалить компонент из расчета
+      tags:
+      - Calculations UPS
+  /api/calcUPS/{id}:
+    put:
+      consumes:
+      - application/json
+      description: Устанавливает коэффициенты и мощность для расчета ИБП
+      parameters:
+      - description: ID ресурса
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Параметры расчета
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешно установлено
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID ресурса или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка установки коэффициента
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Установить параметры расчета
+      tags:
+      - Calculations UPS
+  /api/component:
+    get:
+      description: Get list of all components - alternative version
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/ds.Component'
+            type: array
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get all components (alternative endpoint)
+      tags:
+      - Components
+    post:
+      consumes:
+      - application/json
+      description: Создает новый компонент
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Component data
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/ds.Component'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Создание компонента
+      tags:
+      - Components
+  /api/component/{id}:
+    post:
+      consumes:
+      - application/json
+      description: Добавляет указанный компонент в текущую черновую заявку пользователя.
+        После успешного добавления происходит редирект на главную страницу.
+      parameters:
+      - description: ID компонента
+        format: int
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      - default: Bearer
+        description: Bearer токен авторизации
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Компонент успешно добавлен
+          schema:
+            additionalProperties: true
+            type: object
+        "302":
+          description: Редирект на главную страницу после успешного добавления
+        "400":
+          description: Неверный ID компонента
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Пользователь не авторизован
+        "404":
+          description: Черновая заявка не найдена
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Добавить компонент в черновик заявки
+      tags:
+      - Components
+      - bidUPS
+    put:
+      consumes:
+      - application/json
+      description: Обновляет данные компонента
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Component ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated component
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/ds.Component'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Обновление компонента
+      tags:
+      - Components
+  /api/component/{id}/setComponentImage:
+    post:
+      description: Загружает и сохраняет изображение компонента на MinIO
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Component ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Image file
+        in: formData
+        name: image
+        required: true
+        type: file
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Установка изображения компонента
+      tags:
+      - Components
+  /api/components/{id}:
+    delete:
+      description: Удаляет компонент из системы
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Component ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: Success
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Удаление компонента
+      tags:
+      - Components
+    get:
+      consumes:
+      - application/json
+      description: Возвращает детальную информацию о компоненте по указанному ID
+      parameters:
+      - description: ID компонента
+        format: int
+        in: path
+        minimum: 1
+        name: id
+        required: true
+        type: integer
+      - default: Bearer
+        description: Bearer токен авторизации
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный ответ с данными компонента
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Неверный формат ID
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Пользователь не авторизован
+        "404":
+          description: Компонент не найден
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Получить компонент по ID
+      tags:
+      - Components
+  /api/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates user and returns JWT token
+      parameters:
+      - description: Login credentials
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/ds.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ds.LoginResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Invalid credentials
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: User login
+      tags:
+      - User
+  /api/logout:
+    post:
+      description: Логаут и добавление JWT в черный список
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Success
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Выход пользователя
+      tags:
+      - User
+  /api/register:
+    post:
+      consumes:
+      - application/json
+      description: Регистрирует нового пользователя
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Register user
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/ds.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Регистрация пользователя
+      tags:
+      - User
+  /api/users/{id}:
+    get:
+      description: Возвращает данные пользователя по ID
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: User not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Получение информации о пользователе
+      tags:
+      - User
+    put:
+      consumes:
+      - application/json
+      description: Обновляет данные пользователя
+      parameters:
+      - description: Bearer <access_token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Update user
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/ds.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Обновление данных пользователя
+      tags:
+      - User
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

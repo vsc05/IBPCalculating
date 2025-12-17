@@ -3,6 +3,7 @@ package handler
 import (
 	"DIA3Course/internal/app/ds"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,9 +21,42 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
-// @Summary Получение списка компонентов
+var (
+	hardcodedUserInstance *HardcodedUser
+	hardcodedUserOnce     sync.Once
+)
+
+type HardcodedUser struct {
+	Login      string
+	BidID      int
+	ItemsCount int
+}
+
+func GetHardcodedUser() *HardcodedUser {
+	hardcodedUserOnce.Do(func() {
+		hardcodedUserInstance = &HardcodedUser{
+			Login:      "hardcoded_user",
+			BidID:      -1,
+			ItemsCount: 0,
+		}
+	})
+
+	return hardcodedUserInstance
+}
+
+func (h *Handler) GetUserCart2(ctx *gin.Context) {
+	hardcodedUser := GetHardcodedUser()
+
+	h.successResponse(ctx, gin.H{
+		"bid_id":      hardcodedUser.BidID,
+		"items_count": hardcodedUser.ItemsCount,
+	})
+}
+
+// @Summary Получение списка компонентовfffff
 // @Description Возвращает все компоненты (HTML)
 // @Tags Components
 // @Param Authorization header string true "Bearer <access_token>"
@@ -48,47 +83,108 @@ func (h *Handler) GetComponents(ctx *gin.Context) {
 	})
 }
 
-// @Summary Получение одного компонента
-// @Description Возвращает компонент по ID
+// GetComponent получает компонент по ID
+// @Summary Получить компонент по ID
+// @Description Возвращает детальную информацию о компоненте по указанному ID
 // @Tags Components
-// @Param Authorization header string true "Bearer <access_token>"
+// @Accept json
+// @Produce json
+// @Param id path integer true "ID компонента" format(int) minimum(1)
+// @Param Authorization header string true "Bearer токен авторизации" default(Bearer )
 // @Security BearerAuth
+// @Success 200 {object} map[string]interface{} "Успешный ответ с данными компонента"
+// @Failure 400 {object} map[string]interface{} "Неверный формат ID"
+// @Failure 401 "Пользователь не авторизован"
+// @Failure 404 {object} map[string]interface{} "Компонент не найден"
+// @Failure 500 {object} map[string]interface{} "Внутренняя ошибка сервера"
+// @Router /api/components/{id} [get]
 func (h *Handler) GetComponent(ctx *gin.Context) {
 	idStr := ctx.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		logrus.Error(err)
+		logrus.WithFields(logrus.Fields{
+			"handler": "GetComponent",
+			"id":      idStr,
+		}).Error("Invalid ID format: ", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid ID format",
+		})
+		return
 	}
+
 	component, err := h.Repository.GetComponent(id)
 	if err != nil {
-		logrus.Error(err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logrus.WithFields(logrus.Fields{
+				"handler": "GetComponent",
+				"id":      id,
+			}).Warn("Component not found")
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"error": "Component not found",
+			})
+			return
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"handler": "GetComponent",
+			"id":      id,
+		}).Error("Database error: ", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Internal server error",
+		})
+		return
 	}
-	ctx.HTML(http.StatusOK, "component.html", gin.H{
-		"order": component,
+
+	// Возвращаем компонент в формате JSON
+	ctx.JSON(http.StatusOK, gin.H{
+		"component": component,
 	})
 }
 
-// @Summary Добавление компонента в заявку
-// @Tags Bid
-// @Param Authorization header string true "Bearer <access_token>"
+// AddComponentToBid добавляет компонент в черновик заявки
+// @Summary Добавить компонент в черновик заявки
+// @Description Добавляет указанный компонент в текущую черновую заявку пользователя. После успешного добавления происходит редирект на главную страницу.
+// @Tags Components, bidUPS
+// @Accept json
+// @Produce json
+// @Param id path integer true "ID компонента" format(int) minimum(1)
+// @Param Authorization header string true "Bearer токен авторизации" default(Bearer )
 // @Security BearerAuth
+// @Success 200 {object} map[string]interface{} "Компонент успешно добавлен"
+// @Failure 302 "Редирект на главную страницу после успешного добавления"
+// @Failure 400 {object} map[string]interface{} "Неверный ID компонента"
+// @Failure 401 "Пользователь не авторизован"
+// @Failure 404 {object} map[string]interface{} "Черновая заявка не найдена"
+// @Failure 500 {object} map[string]interface{} "Внутренняя ошибка сервера"
+// @Router /api/component/{id} [post]
 func (h *Handler) AddComponentToBid(ctx *gin.Context) {
+	// Получаем логин пользователя из контекста (добавляется в middleware WithAuthCheck)
+	userLogin, exists := ctx.Get("userLogin")
+	if !exists {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		return
+	}
+
 	compIDStr := ctx.Param("id")
 	compID, err := strconv.Atoi(compIDStr)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid component id"})
 		return
 	}
-	draftBid, err := h.Repository.GetDraftBid()
+
+	// Передаем логин пользователя в функцию GetDraftBid
+	draftBid, err := h.Repository.GetOrCreateDraftBid(userLogin.(string))
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "не найдена заявка-черновик: " + err.Error()})
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "не найдена заявка-черновик: " + err.Error()})
 		return
 	}
+
 	err = h.Repository.AddComponentToBid(int(draftBid.ID), compID)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	h.successResponse(ctx, gin.H{
 		"message": "Компонент успешно добавлен в текущую заявку",
 	})
@@ -163,7 +259,7 @@ func (h *Handler) DeleteComponent(ctx *gin.Context) {
 
 // @Summary Регистрация пользователя
 // @Description Регистрирует нового пользователя
-// @Tags Auth
+// @Tags User
 // @Param Authorization header string true "Bearer <access_token>"
 // @Security BearerAuth
 // @Accept json
@@ -172,7 +268,7 @@ func (h *Handler) DeleteComponent(ctx *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /register [post]
+// @Router /api/register [post]
 func (h *Handler) RegisterUser(ctx *gin.Context) {
 	var request ds.RegisterRequest
 	if err := ctx.ShouldBindJSON(&request); err != nil {
@@ -217,14 +313,14 @@ func (h *Handler) RegisterUser(ctx *gin.Context) {
 
 // @Summary Получение информации о пользователе
 // @Description Возвращает данные пользователя по ID
-// @Tags Users
+// @Tags User
 // @Param Authorization header string true "Bearer <access_token>"
 // @Security BearerAuth
 // @Param id path int true "User ID"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid ID"
 // @Failure 404 {object} map[string]string "User not found"
-// @Router /users/{id} [get]
+// @Router /api/users/{id} [get]
 func (h *Handler) GetUser(ctx *gin.Context) {
 	idStr := ctx.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -250,7 +346,7 @@ func (h *Handler) GetUser(ctx *gin.Context) {
 
 // @Summary Обновление данных пользователя
 // @Description Обновляет данные пользователя
-// @Tags Users
+// @Tags User
 // @Param Authorization header string true "Bearer <access_token>"
 // @Security BearerAuth
 // @Accept json
@@ -260,7 +356,7 @@ func (h *Handler) GetUser(ctx *gin.Context) {
 // @Success 200 {object} map[string]string "Success"
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /users/{id} [put]
+// @Router /api/users/{id} [put]
 func (h *Handler) SetUserChanges(ctx *gin.Context) {
 	idStr := ctx.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -276,7 +372,10 @@ func (h *Handler) SetUserChanges(ctx *gin.Context) {
 	}
 
 	updates := make(map[string]interface{})
+
+	// 1. Обработка Логина
 	if request.Login != "" {
+		// Проверка на уникальность логина
 		existingUser, _ := h.Repository.GetUserByUsername(request.Login)
 		if existingUser != nil && existingUser.ID != uint(id) {
 			h.errorResponse(ctx, http.StatusBadRequest, "Имя пользователя уже занято")
@@ -284,8 +383,17 @@ func (h *Handler) SetUserChanges(ctx *gin.Context) {
 		}
 		updates["login"] = request.Login
 	}
-	if request.IsModerator != false {
-		updates["isModerator"] = request.IsModerator
+
+	// 2. Обработка Пароля (Без хеширования, прямое обновление)
+	if request.Password != "" {
+		// Предполагаем, что поле в БД называется 'password' (или 'password_hash' если ты хочешь его обновлять)
+		updates["password"] = request.Password
+	}
+
+	// Если ни логин, ни пароль не переданы, нет смысла обновлять
+	if len(updates) == 0 {
+		h.errorResponse(ctx, http.StatusBadRequest, "Нет данных для обновления")
+		return
 	}
 
 	if err := h.Repository.UpdateUser(id, updates); err != nil {
@@ -301,14 +409,14 @@ func (h *Handler) SetUserChanges(ctx *gin.Context) {
 // LoginUser godoc
 // @Summary User login
 // @Description Authenticates user and returns JWT token
-// @Tags Auth
+// @Tags User
 // @Accept json
 // @Produce json
 // @Param input body ds.LoginRequest true "Login credentials"
 // @Success 200 {object} ds.LoginResponse
 // @Failure 400 {object} map[string]string "Invalid request"
 // @Failure 401 {object} map[string]string "Invalid credentials"
-// @Router /login [post]
+// @Router /api/login [post]
 func (h *Handler) LoginUser(gCtx *gin.Context) {
 	var req ds.LoginRequest
 	if err := gCtx.ShouldBindJSON(&req); err != nil {
@@ -329,6 +437,7 @@ func (h *Handler) LoginUser(gCtx *gin.Context) {
 			IssuedAt:  time.Now().Unix(),
 			Issuer:    "bitop-admin",
 		},
+		UserDBID:    user.ID, // <-- Устанавливаем ID пользователя из БД
 		UserUUID:    uuid.New(),
 		Scopes:      []string{"read", "write"},
 		IsModerator: user.IsModerator,
@@ -336,7 +445,7 @@ func (h *Handler) LoginUser(gCtx *gin.Context) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, _ := token.SignedString([]byte("my-key"))
+	tokenString, _ := token.SignedString([]byte(h.Config.JWT.Secret))
 
 	gCtx.JSON(http.StatusOK, gin.H{
 		"expires_in":   expiration.Seconds(),
@@ -347,13 +456,13 @@ func (h *Handler) LoginUser(gCtx *gin.Context) {
 
 // @Summary Выход пользователя
 // @Description Логаут и добавление JWT в черный список
-// @Tags Auth
+// @Tags User
 // @Param Authorization header string true "Bearer <access_token>"
 // @Security BearerAuth
 // @Success 200 {string} string "Success"
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /logout [post]
+// @Router /api/logout [post]
 func (h *Handler) Logout(gCtx *gin.Context) {
 	jwtStr := gCtx.GetHeader("Authorization")
 	if !strings.HasPrefix(jwtStr, jwtPrefix) {
@@ -393,7 +502,7 @@ func (h *Handler) Logout(gCtx *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /components [post]
+// @Router /api/component [post]
 func (h *Handler) createComponent(ctx *gin.Context) {
 	var resource ds.Component
 	if err := ctx.ShouldBindJSON(&resource); err != nil {
@@ -427,7 +536,7 @@ func (h *Handler) createComponent(ctx *gin.Context) {
 // @Success 200 {object} map[string]string "Success"
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /components/{id} [put]
+// @Router /api/component/{id} [put]
 func (h *Handler) UpdateComponent(ctx *gin.Context) {
 	idStr := ctx.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -484,7 +593,7 @@ func (h *Handler) UpdateComponent(ctx *gin.Context) {
 // @Success 200 {object} map[string]string "Success"
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /components/{id} [delete]
+// @Router /api/components/{id} [delete]
 func (h *Handler) DeleteComponentPostman(ctx *gin.Context) {
 	idStr := ctx.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -513,7 +622,7 @@ func (h *Handler) DeleteComponentPostman(ctx *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /components/{id}/image [post]
+// @Router /api/component/{id}/setComponentImage [post]
 func (h *Handler) SetComponentImage(ctx *gin.Context) {
 	// Загружаем env, если ещё не
 	_ = godotenv.Load()
@@ -596,6 +705,18 @@ func (h *Handler) SetComponentImage(ctx *gin.Context) {
 	})
 }
 
+// GetUserCart получает корзину пользователя
+// @Summary Получить корзину пользователя
+// @Description Возвращает данные корзины (ID бида и количество товаров) для текущего авторизованного пользователя
+// @Tags bidUPS
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{} "Успешный ответ"
+// @Failure 401 {object} map[string]interface{} "Пользователь не авторизован"
+// @Failure 500 {object} map[string]interface{} "Внутренняя ошибка сервера"
+// @Router /api/bidUPS [get]
+// @Param Authorization header string true "Bearer токен авторизации" default(Bearer )
 func (h *Handler) GetUserCart(ctx *gin.Context) {
 	userLogin, exists := ctx.Get("userLogin")
 	if !exists {
@@ -603,39 +724,87 @@ func (h *Handler) GetUserCart(ctx *gin.Context) {
 		return
 	}
 
-	bids, err := h.Repository.GetUserCartDetails(userLogin.(string))
+	bidID, itemsCount, err := h.Repository.GetUserCartDetails(userLogin.(string))
 	if err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка получения корзины: "+err.Error())
 		return
 	}
 
 	h.successResponse(ctx, gin.H{
-		"cart_count":   len(bids),
-		"applications": bids,
-		"user_login":   userLogin,
+		"bid_id":      bidID,
+		"items_count": itemsCount,
 	})
 }
 
 // @Summary Получение списка заявок UPS
 // @Description Возвращает все заявки UPS из системы с общим количеством
-// @Tags Bid UPS
+// @Tags bidUPS
 // @Produce json
 // @Param Authorization header string true "Bearer <access_token>"
 // @Success 200 {object} map[string]interface{} "Успешный ответ"
 // @Failure 403 {object} map[string]string "Forbidden"
 // @Failure 500 {object} map[string]string "Ошибка сервера"
 // @Security BearerAuth
-// @Router /api/bidUPS [get]
+// @Router /api/bidUPSAll [get]
 func (h *Handler) GetBidUPS(ctx *gin.Context) {
-	applications, err := h.Repository.GetAllBidUPS()
+	// Создаем карту фильтров
+	filters := make(map[string]interface{})
+
+	// Получаем параметры фильтрации из query string
+	if startDate := ctx.Query("start_date"); startDate != "" {
+		filters["start_date"] = startDate
+	}
+	if endDate := ctx.Query("end_date"); endDate != "" {
+		filters["end_date"] = endDate
+	}
+	if status := ctx.Query("status"); status != "" {
+		filters["status"] = status
+	}
+
+	applications, err := h.Repository.GetAllBidUPS(filters)
 	if err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка получения заявок: "+err.Error())
 		return
 	}
 
+	// Преобразуем в response DTO чтобы вернуть только нужные поля
+	type BidUPSResponse struct {
+		ID                   uint      `json:"id"`
+		Status               string    `json:"status"`
+		DateUpdate           time.Time `json:"date_update"`
+		DateFinish           time.Time `json:"date_finish"`
+		IncomingCurrent      int       `json:"incoming_current"`
+		CreatorLogin         string    `json:"creator_login"`
+		ModeratorLogin       string    `json:"moderator_login"`
+		CalculatedPowerCount int       `json:"calculated_power_count"`
+	}
+
+	var response []BidUPSResponse
+	for _, app := range applications {
+		moderatorLogin := ""
+		if app.Moderator.ID != 0 {
+			moderatorLogin = app.Moderator.Login
+		}
+
+		dateFinish := time.Time{}
+		if app.DateFinish.Valid {
+			dateFinish = app.DateFinish.Time
+		}
+
+		response = append(response, BidUPSResponse{
+			ID:                   app.ID,
+			Status:               app.Status,
+			DateUpdate:           app.DateUpdate,
+			DateFinish:           dateFinish,
+			IncomingCurrent:      app.IncomingCurrent,
+			CreatorLogin:         app.Creator.Login,
+			ModeratorLogin:       moderatorLogin,
+			CalculatedPowerCount: app.CalculatedPowerCount,
+		})
+	}
+
 	h.successResponse(ctx, gin.H{
-		"BidUPS": applications,
-		"total":  len(applications),
+		"bid_ups": response,
 	})
 }
 
@@ -646,19 +815,30 @@ func (h *Handler) GetBidUPS(ctx *gin.Context) {
 // @Produce json
 // @Success 200 {array} ds.Component
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /api/getComponents [get]
+// @Router /api/component [get]
 func (h *Handler) GetComponents2(ctx *gin.Context) {
-	applications, err := h.Repository.GetAllComponents()
+	nameFilter := ctx.Query("query") // получаем параметр query для фильтрации по имени
+
+	components, err := h.Repository.GetAllComponents(nameFilter)
 	if err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка получения компонентов: "+err.Error())
 		return
 	}
 
 	h.successResponse(ctx, gin.H{
-		"Components": applications,
+		"Components": components,
 	})
 }
 
+// @Summary Сформировать заявку ИБП
+// @Description Завершает формирование заявки на расчет ИБП
+// @Tags bidUPS
+// @Produce json
+// @Param id path int true "ID заявки"
+// @Success 200 {object} map[string]string "Заявка успешно сформирована"
+// @Failure 400 {object} map[string]string "Неверный ID заявки"
+// @Failure 500 {object} map[string]string "Ошибка формирования заявки"
+// @Router /api/bidUPS/{id}/form [put]
 func (h *Handler) FormBidUPS(ctx *gin.Context) {
 	applicationIDStr := ctx.Param("id")
 	applicationID, err := strconv.Atoi(applicationIDStr)
@@ -678,7 +858,18 @@ func (h *Handler) FormBidUPS(ctx *gin.Context) {
 	})
 }
 
-func (h *Handler) DeclineBidUPS(ctx *gin.Context) {
+// @Summary Отклонить заявку ИБП
+// @Description Отклоняет заявку на расчет ИБП с указанием модератора и статуса
+// @Tags bidUPS
+// @Accept json
+// @Produce json
+// @Param id path int true "ID заявки"
+// @Param request body object true "Данные для отклонения заявки" example:{"moderator_id": 1, "status": "declined"}
+// @Success 200 {object} map[string]string "Заявка успешно отклонена"
+// @Failure 400 {object} map[string]string "Неверный ID заявки или формат данных"
+// @Failure 500 {object} map[string]string "Ошибка отклонения заявки"
+// @Router /api/bidUPS/{id}/decline [put]
+func (h *Handler) ProcessBidUPS(ctx *gin.Context) {
 	applicationIDStr := ctx.Param("id")
 	applicationID, err := strconv.Atoi(applicationIDStr)
 	if err != nil {
@@ -696,16 +887,27 @@ func (h *Handler) DeclineBidUPS(ctx *gin.Context) {
 		return
 	}
 
-	if err := h.Repository.DeclineBidUPS(applicationID, request.ModeratorID, request.Status); err != nil {
+	if err := h.Repository.ProcessBidUPS(applicationID, request.ModeratorID, request.Status); err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка отклонения заявки: "+err.Error())
 		return
 	}
 
 	h.successResponse(ctx, gin.H{
-		"message": "Заявка успешно отклонена",
+		"message": "Заявка успешно обработана",
 	})
 }
 
+// @Summary Удалить заявку ИБП
+// @Description Полностью удаляет заявку на расчет ИБП
+// @Tags bidUPS
+// @Accept json
+// @Produce json
+// @Param id path int true "ID заявки"
+// @Param request body object true "ID модератора" example:{"moderator_id": 1}
+// @Success 200 {object} map[string]string "Заявка успешно удалена"
+// @Failure 400 {object} map[string]string "Неверный ID заявки или формат данных"
+// @Failure 500 {object} map[string]string "Ошибка удаления заявки"
+// @Router /api/bidUPS/{id} [delete]
 func (h *Handler) DeleteBidUPS(ctx *gin.Context) {
 	applicationIDStr := ctx.Param("id")
 	applicationID, err := strconv.Atoi(applicationIDStr)
@@ -714,16 +916,7 @@ func (h *Handler) DeleteBidUPS(ctx *gin.Context) {
 		return
 	}
 
-	var request struct {
-		ModeratorID int `json:"moderator_id" binding:"required"`
-	}
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		h.errorResponse(ctx, http.StatusBadRequest, "Неверный формат данных")
-		return
-	}
-
-	if err := h.Repository.DeleteBidUPS(applicationID, request.ModeratorID); err != nil {
+	if err := h.Repository.DeleteBidUPS(applicationID); err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка отклонения заявки: "+err.Error())
 		return
 	}
@@ -733,6 +926,17 @@ func (h *Handler) DeleteBidUPS(ctx *gin.Context) {
 	})
 }
 
+// @Summary Обновить данные заявки ИБП
+// @Description Обновляет вес и производительность для заявки ИБП
+// @Tags bidUPS
+// @Accept json
+// @Produce json
+// @Param id path int true "ID заявки"
+// @Param request body object true "Данные для обновления" example:{"creator_id": 1, "moderator_id": 2}
+// @Success 200 {object} map[string]string "Изменения успешно сохранены"
+// @Failure 400 {object} map[string]string "Неверный ID заявки или формат данных"
+// @Failure 500 {object} map[string]string "Ошибка обновления заявки"
+// @Router /api/bidUPS/{id}/set [put]
 func (h *Handler) SetBidUPS(ctx *gin.Context) {
 	applicationIDStr := ctx.Param("id")
 	applicationID, err := strconv.Atoi(applicationIDStr)
@@ -742,8 +946,7 @@ func (h *Handler) SetBidUPS(ctx *gin.Context) {
 	}
 
 	var request struct {
-		Weight       int `json:"creator_id" binding:"required"`
-		Productivity int `json:"moderator_id" binding:"required"`
+		IncomingCurrent int `json:"incoming_current" binding:"required"`
 	}
 
 	if err := ctx.ShouldBindJSON(&request); err != nil {
@@ -751,7 +954,7 @@ func (h *Handler) SetBidUPS(ctx *gin.Context) {
 		return
 	}
 
-	err = h.Repository.SetBidUPS(applicationID, request.Weight, request.Productivity)
+	err = h.Repository.SetBidUPS(applicationID, request.IncomingCurrent)
 	if err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, err.Error())
 		return
@@ -762,16 +965,21 @@ func (h *Handler) SetBidUPS(ctx *gin.Context) {
 	})
 }
 
+// @Summary Удалить компонент из расчета
+// @Description Удаляет компонент из расчета ИБП
+// @Tags Calculations UPS
+// @Accept json
+// @Produce json
+// @Param id path int true "ID ресурса"
+// @Param request body object true "ID заявки" example:{"bidId": 123}
+// @Success 200 {object} map[string]string "Компонент успешно удален из заявки"
+// @Failure 400 {object} map[string]string "Неверный ID ресурса или формат данных"
+// @Failure 500 {object} map[string]string "Ошибка удаления компонента"
+// @Router /api/calcUPS [delete]
 func (h *Handler) DeleteCalcUPS(ctx *gin.Context) {
-	resourceIDStr := ctx.Param("id")
-	resourceID, err := strconv.Atoi(resourceIDStr)
-	if err != nil {
-		h.errorResponse(ctx, http.StatusBadRequest, "Неверный ID ресурса")
-		return
-	}
-
 	var request struct {
 		ApplicationID int `json:"bidId" binding:"required"`
+		ComponentID   int `json:"componentId" binding:"required"`
 	}
 
 	if err := ctx.ShouldBindJSON(&request); err != nil {
@@ -779,7 +987,7 @@ func (h *Handler) DeleteCalcUPS(ctx *gin.Context) {
 		return
 	}
 
-	if err := h.Repository.DeleteCalcUPS(request.ApplicationID, resourceID); err != nil {
+	if err := h.Repository.DeleteCalcUPS(request.ApplicationID, request.ComponentID); err != nil {
 		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка удаления компонента из заявки: "+err.Error())
 		return
 	}
@@ -789,32 +997,173 @@ func (h *Handler) DeleteCalcUPS(ctx *gin.Context) {
 	})
 }
 
+// @Summary Установить параметры расчета
+// @Description Устанавливает коэффициенты и мощность для расчета ИБП
+// @Tags Calculations UPS
+// @Accept json
+// @Produce json
+// @Param id path int true "ID ресурса"
+// @Param request body object true "Параметры расчета" example:{"bidId": 123, "componentId": 456, "battery_life": 2, "incoming_power": 1500}
+// @Success 200 {object} map[string]string "Успешно установлено"
+// @Failure 400 {object} map[string]string "Неверный ID ресурса или формат данных"
+// @Failure 500 {object} map[string]string "Ошибка установки коэффициента"
+// @Router /api/calcUPS/{id} [put]
 func (h *Handler) SetCalcUPS(ctx *gin.Context) {
-	resourceIDStr := ctx.Param("id")
-	resourceID, err := strconv.Atoi(resourceIDStr)
-	if err != nil {
-		h.errorResponse(ctx, http.StatusBadRequest, "Неверный ID ресурса")
-		return
-	}
+	// ⭐️ УДАЛЕНО: Извлечение resourceID из ctx.Param("id") ⭐️
+	// Теперь ID записи CalcUPS не требуется в пути.
 
+	// ⭐️ ОБНОВЛЕННАЯ СТРУКТУРА ЗАПРОСА ⭐️
 	var request struct {
-		ApplicationID int `json:"bidId" binding:"required"`
-		ComponentID   int `json:"componentId" binding:"required"`
-		Coeff         int `json:"battery_life" binding:"required"`
-		Power         int `json:"incoming_power" binding:"required"`
+		// ID заявки/корзины (BidUPS) - обязателен
+		BidID int `json:"bid_id" binding:"required"`
+		// ID компонента (Component) - обязателен для поиска в таблице CalcUPS
+		ComponentID int `json:"component_id" binding:"required"`
+		// Время работы (часы)
+		BatteryLife int `json:"battery_life" binding:"required"`
+		// Количество
+		Count int `json:"count" binding:"required"`
 	}
 
 	if err := ctx.ShouldBindJSON(&request); err != nil {
-		h.errorResponse(ctx, http.StatusBadRequest, "Неверный формат данных")
+		h.errorResponse(ctx, http.StatusBadRequest, "Неверный формат данных: требуются 'bid_id', 'component_id', 'battery_life' и 'count'")
 		return
 	}
 
-	if err := h.Repository.SetCalcUPS(request.ApplicationID, resourceID, request.ComponentID, request.Coeff, request.Power); err != nil {
-		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка установки коэффициента: "+err.Error())
+	// ⭐️ Измененный вызов репозитория: Передаем ComponentID и BidID ⭐️
+	if err := h.Repository.SetCalcUPS(request.BidID, request.ComponentID, request.BatteryLife, request.Count); err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка обновления данных компонента: "+err.Error())
 		return
 	}
 
 	h.successResponse(ctx, gin.H{
-		"message": "Успешно установлено",
+		"message": "Успешно обновлено",
 	})
+}
+
+// GetBidUPSByID получает заявку UPS по ID
+// @Summary Получить заявку UPS по ID
+// @Description Возвращает детальную информацию о заявке UPS по указанному ID, включая компоненты
+// @Tags bidUPS
+// @Accept json
+// @Produce json
+// @Param id path integer true "ID заявки UPS" format(uint32)
+// @Success 200 {object} map[string]interface{} "Успешный ответ с данными заявки"
+// @Failure 400 {object} map[string]interface{} "Неверный формат ID"
+// @Failure 404 {object} map[string]interface{} "Заявка не найдена"
+// @Failure 500 {object} map[string]interface{} "Внутренняя ошибка сервера"
+// @Router /api/bidUPS/{id} [get]
+func (h *Handler) GetBidUPSByID(ctx *gin.Context) {
+	idStr := ctx.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		h.errorResponse(ctx, http.StatusBadRequest, "Неверный ID заявки")
+		return
+	}
+
+	bidUPS, err := h.Repository.GetBidUPSByID(uint(id))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			h.errorResponse(ctx, http.StatusNotFound, "Заявка не найдена")
+		} else {
+			h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка получения заявки: "+err.Error())
+		}
+		return
+	}
+
+	// Создаем response DTO с нужными полями
+	type ComponentResponse struct {
+		ID              uint    `json:"id"`
+		Image           string  `json:"image,omitempty"`
+		Title           string  `json:"title"`
+		Power           int     `json:"power"`
+		Coeff           float32 `json:"coeff"`
+		CalculatedPower int     `json:"calculated_power"`
+		Count           int     `json:"count"`
+		// ⭐️ ДОБАВЛЕНО: Время работы (BatteryLife) для компонента ⭐️
+		BatteryLife int `json:"battery_life"`
+	}
+
+	type BidUPSResponse struct {
+		ID         uint      `json:"id"`
+		Status     string    `json:"status"`
+		DateUpdate time.Time `json:"date_update"`
+		DateFinish time.Time `json:"date_finish,omitempty"`
+		// Поле BatteryLife на уровне заявки не используется, так как оно теперь в компонентах
+		// BatteryLife     int                 `json:"battery_life"`
+		IncomingCurrent int                 `json:"incoming_current"`
+		CreatorLogin    string              `json:"creator_login"`
+		ModeratorLogin  string              `json:"moderator_login,omitempty"`
+		Components      []ComponentResponse `json:"components"`
+	}
+
+	// Преобразуем компоненты в response формат
+	var componentsResponse []ComponentResponse
+	for _, calcUPS := range bidUPS.Components {
+		componentsResponse = append(componentsResponse, ComponentResponse{
+			ID:              uint(calcUPS.Component.ID),
+			Image:           calcUPS.Component.Image,
+			Title:           calcUPS.Component.Title,
+			Power:           calcUPS.Component.Power,
+			Coeff:           calcUPS.Component.Coeff,
+			CalculatedPower: calcUPS.CalculatedPower,
+			Count:           calcUPS.Count,
+			// ⭐️ ЗАПОЛНЕНИЕ: Используем calcUPS.BatteryLife ⭐️
+			BatteryLife: calcUPS.BatteryLife,
+		})
+	}
+
+	// Создаем основной response
+	response := BidUPSResponse{
+		ID:              bidUPS.ID,
+		Status:          bidUPS.Status,
+		DateUpdate:      bidUPS.DateUpdate,
+		IncomingCurrent: bidUPS.IncomingCurrent,
+		CreatorLogin:    bidUPS.Creator.Login,
+		Components:      componentsResponse,
+	}
+
+	// Добавляем опциональные поля
+	if bidUPS.Moderator.ID != 0 {
+		response.ModeratorLogin = bidUPS.Moderator.Login
+	}
+	if bidUPS.DateFinish.Valid {
+		response.DateFinish = bidUPS.DateFinish.Time
+	}
+
+	h.successResponse(ctx, response)
+}
+
+const InterServiceSecretToken = "SECRET_8B"
+
+func (h *Handler) UpdateCalculatedPower(ctx *gin.Context) {
+	// 1. ПРОВЕРКА АВТОРИЗАЦИИ
+	authHeader := ctx.GetHeader("Authorization")
+
+	// Ожидаем формат "Bearer SECRET_8B"
+	expectedToken := "Bearer " + InterServiceSecretToken
+
+	if authHeader != expectedToken {
+		// Отказ в доступе, если токен не совпадает
+		h.errorResponse(ctx, http.StatusUnauthorized, "Неверный или отсутствующий токен авторизации")
+		return
+	}
+
+	// 2. ОБРАБОТКА ТЕЛА ЗАПРОСА (остается без изменений)
+	var request struct {
+		BidID            int                `json:"bid_id" binding:"required"`
+		Results          []ds.BidCalcResult `json:"results" binding:"required"`
+		ModeratorIDFinal int                `json:"moderator_id_final" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		h.errorResponse(ctx, http.StatusBadRequest, "Неверный формат данных колбэка: "+err.Error())
+		return
+	}
+
+	if err := h.Repository.UpdateCalculatedPower(request.BidID, request.Results, request.ModeratorIDFinal); err != nil {
+		h.errorResponse(ctx, http.StatusInternalServerError, "Ошибка обновления расчетов: "+err.Error())
+		return
+	}
+
+	h.successResponse(ctx, gin.H{"message": "Расчеты успешно обновлены"})
 }

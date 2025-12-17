@@ -102,6 +102,244 @@ paths:
       summary: Получение списка заявок UPS
       tags:
       - Bid UPS
+  /api/bids/ups/{id}/decline:
+    post:
+      consumes:
+      - application/json
+      description: Отклоняет заявку на расчет ИБП с указанием модератора и статуса
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Данные для отклонения заявки
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заявка успешно отклонена
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка отклонения заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Отклонить заявку ИБП
+      tags:
+      - Bids UPS
+  /api/bids/ups/{id}/delete:
+    delete:
+      consumes:
+      - application/json
+      description: Полностью удаляет заявку на расчет ИБП
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ID модератора
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заявка успешно удалена
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка удаления заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Удалить заявку ИБП
+      tags:
+      - Bids UPS
+  /api/bids/ups/{id}/form:
+    post:
+      description: Завершает формирование заявки на расчет ИБП
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Заявка успешно сформирована
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка формирования заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Сформировать заявку ИБП
+      tags:
+      - Bids UPS
+  /api/bids/ups/{id}/set:
+    put:
+      consumes:
+      - application/json
+      description: Обновляет вес и производительность для заявки ИБП
+      parameters:
+      - description: ID заявки
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Данные для обновления
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Изменения успешно сохранены
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID заявки или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка обновления заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Обновить данные заявки ИБП
+      tags:
+      - Bids UPS
+  /api/calculations/ups/{id}/delete:
+    delete:
+      consumes:
+      - application/json
+      description: Удаляет компонент из расчета ИБП
+      parameters:
+      - description: ID ресурса
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: ID заявки
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Компонент успешно удален из заявки
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID ресурса или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка удаления компонента
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Удалить компонент из расчета
+      tags:
+      - Calculations UPS
+  /api/calculations/ups/{id}/set:
+    post:
+      consumes:
+      - application/json
+      description: Устанавливает коэффициенты и мощность для расчета ИБП
+      parameters:
+      - description: ID ресурса
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Параметры расчета
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешно установлено
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Неверный ID ресурса или формат данных
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Ошибка установки коэффициента
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Установить параметры расчета
+      tags:
+      - Calculations UPS
   /api/getComponents:
     get:
       description: Get list of all components - alternative version

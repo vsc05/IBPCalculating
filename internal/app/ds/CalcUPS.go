@@ -5,13 +5,18 @@ type CalcUPS struct {
 
 	BidID       uint `gorm:"not null"; json:"bidId"`
 	ComponentID uint `gorm:"not null"; json:"componentId"`
+	Count       int  `gorm:"null"; json:"count"`
 
-	BatteryLife     int `gorm:"type:int;not null;default:0"; json:"battery_life"`
-	IncomingCurrent int `gorm:"type:int;not null;default:0"; json:"incoming_power"`
 	CalculatedPower int `gorm:"type:int;"`
+	BatteryLife     int `gorm:"type:int;default:0"; json:"battery_life"`
 
 	Bid       BidUPS    `gorm:"foreignKey:BidID"`
-	Component Component `gorm:"foreignKey:ComponentID"`
+	Component Component `gorm:"foreignKey:ComponentID" json:"component"`
+}
+
+type BidCalcResult struct {
+	CalcID          int `json:"calc_id"`
+	CalculatedPower int `json:"calculated_power"`
 }
 
 // -- Adminer 5.4.0 PostgreSQL 17.6 dump

@@ -19,18 +19,6 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-type pingReq struct{}
-type pingResp struct {
-	Status string `json:"status"`
-}
-
-// @Summary      Show hello text
-// @Description  very very friendly response
-// @Tags         Tests
-// @Produce      json
-// @Param        name path string true "User name"
-// @Success      200  {object}  pingResp
-// @Router       /ping/{name} [get]
 func (h *Handler) Ping(gCtx *gin.Context) {
 	gCtx.JSON(http.StatusOK, gin.H{"status": "Hello!"})
 }
@@ -73,7 +61,7 @@ func (h *Handler) WithAuthCheck(allowedRoles ...role.Role) gin.HandlerFunc {
 		}
 
 		token, err := jwt.ParseWithClaims(jwtStr, &ds.JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-			return []byte("my-key"), nil
+			return []byte(h.Config.JWT.Secret), nil
 		})
 		if err != nil {
 			log.Println("JWT parse error:", err)
@@ -90,6 +78,7 @@ func (h *Handler) WithAuthCheck(allowedRoles ...role.Role) gin.HandlerFunc {
 		// Сохраняем логин пользователя в контексте
 		gCtx.Set("userLogin", claims.Login)
 		gCtx.Set("userUUID", claims.UserUUID.String())
+		gCtx.Set("userID", claims.UserDBID) // <-- Сохраняем User.ID в контекст
 
 		// Проверяем, разрешена ли роль (IsModerator)
 		for _, allowed := range allowedRoles {
@@ -108,36 +97,40 @@ func (h *Handler) RegisterHandler(router *gin.Engine) {
 	router.GET("/ping", h.WithAuthCheck(role.IsModerator), h.Ping)
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	router.GET("/api/", h.GetComponents)
-	router.GET("/api/getComponent/:id", h.GetComponent)
 	router.GET("/api/getComponents", h.GetComponents2)
 	router.GET("/api/calcups/:id", h.GetBid)
 	router.POST("/api/calcups/:id/delete-component", h.DeleteComponent)
-	router.POST("/api/:id/add-to-bid", h.AddComponentToBid)
+	router.GET("/api/UPSbid", h.GetUserCart2)
 
 	//user
 	router.POST("/api/register", h.RegisterUser)
 	router.GET("/api/users/:id", h.GetUser)
 	router.PUT("/api/users/:id", h.SetUserChanges)
-	router.POST("/login", h.LoginUser)
-	router.POST("/logout", h.Logout)
+	router.POST("/api/login", h.LoginUser)
+	router.POST("/api/logout", h.Logout)
 
 	//component
-	router.POST("/api/component/createComponent", h.createComponent)
-	router.PUT("/api/component/:id", h.UpdateComponent)
-	router.DELETE("/api/component/:id", h.DeleteComponentPostman)
-	router.POST("/api/component/:id/setComponentImage", h.SetComponentImage)
+	router.GET("/api/component/:id", h.GetComponent)
+	router.GET("/api/component", h.GetComponents2)
+	router.POST("/api/component", h.WithAuthCheck(role.User), h.createComponent)
+	router.PUT("/api/component/:id", h.WithAuthCheck(role.User), h.UpdateComponent)
+	router.DELETE("/api/component/:id", h.WithAuthCheck(role.User), h.DeleteComponentPostman)
+	router.POST("/api/component/:id/setComponentImage", h.WithAuthCheck(role.User), h.SetComponentImage)
+	router.POST("/api/component/:id", h.WithAuthCheck(role.User), h.AddComponentToBid)
 
 	//bidUPS
-	router.GET("/api/users/bidUPS", h.WithAuthCheck(role.User), h.GetUserCart)
-	router.GET("/api/bidUPS", h.WithAuthCheck(role.IsModerator), h.GetBidUPS)
-	router.POST("/api/bidUPS/:id", h.SetBidUPS)
-	router.POST("/api/bidUPS/:id/form", h.FormBidUPS)
-	router.PUT("/api/bidUPS/:id/decline", h.WithAuthCheck(role.IsModerator), h.DeclineBidUPS)
+	router.GET("/api/bidUPS", h.WithAuthCheck(role.User), h.GetUserCart)
+	router.GET("/api/bidUPS/:id", h.GetBidUPSByID)
+	router.GET("/api/bidUPSAll", h.GetBidUPS)
+	router.PUT("/api/bidUPS/:id", h.SetBidUPS)
+	router.PUT("/api/bidUPS/:id/form", h.FormBidUPS)
+	router.PUT("/api/bidUPS/:id/decline", h.ProcessBidUPS)
 	router.DELETE("/api/bidUPS/:id", h.DeleteBidUPS)
+	router.PUT("/api/bidUPS/updateups", h.UpdateCalculatedPower)
 
 	//calcUPS
-	router.PUT("/api/calcUPS/:id/deleteCalcUPSComponent", h.DeleteCalcUPS)
-	router.POST("/api/calcUPS/:id", h.SetCalcUPS)
+	router.DELETE("/api/calcUPS", h.DeleteCalcUPS)
+	router.PUT("/api/calcUPS", h.SetCalcUPS)
 }
 
 func (h *Handler) RegisterStatic(router *gin.Engine) {

@@ -38,21 +38,10 @@ const (
 	envRedisPort = "REDIS_PORT"
 	envRedisUser = "REDIS_USER"
 	envRedisPass = "REDIS_PASSWORD"
+	envSecretKey = "JWT_SECRET"
 )
 
 func NewConfig() (*Config, error) {
-	var err error
-	cfg := &Config{}
-
-	cfg.Redis.Host = os.Getenv(envRedisHost)
-	cfg.Redis.Port, err = strconv.Atoi(os.Getenv(envRedisPort))
-
-	if err != nil {
-		return nil, fmt.Errorf("redis port must be int value: %w", err)
-	}
-
-	cfg.Redis.Password = os.Getenv(envRedisPass)
-	cfg.Redis.User = os.Getenv(envRedisUser)
 
 	configName := "config"
 	_ = godotenv.Load("../../.env")
@@ -65,6 +54,20 @@ func NewConfig() (*Config, error) {
 	viper.AddConfigPath("../../config")
 	viper.AddConfigPath(".")
 	viper.WatchConfig()
+
+	var err error
+	cfg := &Config{}
+
+	cfg.Redis.Host = os.Getenv(envRedisHost)
+	cfg.Redis.Port, err = strconv.Atoi(os.Getenv(envRedisPort))
+
+	if err != nil {
+		return nil, fmt.Errorf("redis port must be int value: %w", err)
+	}
+
+	cfg.Redis.Password = os.Getenv(envRedisPass)
+	cfg.Redis.User = os.Getenv(envRedisUser)
+	cfg.JWT.Secret = os.Getenv(envSecretKey)
 
 	err = viper.ReadInConfig()
 	if err != nil {
